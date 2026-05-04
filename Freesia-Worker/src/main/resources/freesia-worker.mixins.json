@@ -5,12 +5,15 @@
   "compatibilityLevel": "JAVA_21",
   "mixins": [
     "ConnectionMixin",
+    "DedicatedServerMixin",
     "EntityMixin",
     "LivingEntityMixin",
     "MinecraftServerMixin",
     "PlayerDataStorageMixin",
     "PlayerListMixin",
     "ServerCommonPacketListenerImplMixin",
+    "ServerConfigurationPacketListenerImplMixin",
+    "ServerConnectionListenerMixin",
     "ServerGamePacketListenerImplMixin",
     "ServerLoginPacketListenerImplMixin",
     "TrackedEntityMixin"

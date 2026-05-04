@@ -4,79 +4,83 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.messages.MinecraftChannelIdentifier;
+import io.netty.channel.unix.DomainSocketAddress;
 import meow.kikir.freesia.velocity.FreesiaConstants;
 import meow.kikir.freesia.velocity.Freesia;
 import meow.kikir.freesia.velocity.FreesiaConfig;
 import meow.kikir.freesia.velocity.YsmProtocolMetaFile;
+import meow.kikir.freesia.velocity.network.ysm.hack.UnixDomainsSocketClientSession;
 import net.kyori.adventure.key.Key;
 import net.kyori.adventure.text.Component;
 import org.geysermc.mcprotocollib.auth.GameProfile;
 import org.geysermc.mcprotocollib.network.BuiltinFlags;
 import org.geysermc.mcprotocollib.network.tcp.TcpClientSession;
+import org.geysermc.mcprotocollib.network.tcp.TcpSession;
 import org.geysermc.mcprotocollib.protocol.MinecraftProtocol;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.util.*;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Function;
 
-public class YsmMapperPayloadManager {
+public class MappersManager {
     // Ysm channel key name
     public static final Key YSM_CHANNEL_KEY_ADVENTURE = Key.key(YsmProtocolMetaFile.getYsmChannelNamespace() + ":" + YsmProtocolMetaFile.getYsmChannelPath());
     public static final MinecraftChannelIdentifier YSM_CHANNEL_KEY_VELOCITY = MinecraftChannelIdentifier.create(YsmProtocolMetaFile.getYsmChannelNamespace(), YsmProtocolMetaFile.getYsmChannelPath());
 
     // Player to worker mappers connections
-    private final Map<Player, MapperSessionProcessor> mapperSessions = Maps.newConcurrentMap();
-    private final Map<Integer, MapperSessionProcessor> backendId2Mapper = Maps.newConcurrentMap();
-    private final Map<Integer, MapperSessionProcessor> workerId2Mapper = Maps.newConcurrentMap();
+    private final Map<Player, MapperConnectionHandler> sessions = Maps.newConcurrentMap();
+    private final Map<Integer, MapperConnectionHandler> backendId2Mapper = Maps.newConcurrentMap();
+    private final Map<Integer, MapperConnectionHandler> workerId2Mapper = Maps.newConcurrentMap();
     // Real player proxy factory
     private final Function<Player, YsmPacketProxy> packetProxyCreator;
 
     // Backend connect infos
-    private final ReadWriteLock workerMsessionIpsAccessLock = new ReentrantReadWriteLock(false);
-    private final Map<InetSocketAddress, Integer> workerIp2Players = Maps.newLinkedHashMap();
+    private final ReadWriteLock workerTcpSessionIpsAccessLock = new ReentrantReadWriteLock(false);
+    private final Map<SocketAddress, Integer> workerIp2PlayerCounters = Maps.newLinkedHashMap();
 
     // The players who installed ysm(Used for packet sending reduction)
     private final Set<UUID> ysmInstalledPlayers = Sets.newConcurrentHashSet();
 
-    public YsmMapperPayloadManager(Function<Player, YsmPacketProxy> packetProxyCreator) {
+    public MappersManager(Function<Player, YsmPacketProxy> packetProxyCreator) {
         this.packetProxyCreator = packetProxyCreator;
 
-        for (InetSocketAddress singleWorkerMsessionAddress : FreesiaConfig.workerMessionAddresses) {
-            this.workerIp2Players.put(singleWorkerMsessionAddress, 0);
+        for (SocketAddress singleWorkerMsessionAddress : FreesiaConfig.workerMessionAddresses) {
+            this.workerIp2PlayerCounters.put(singleWorkerMsessionAddress, 0);
         }
     }
 
-    public void decreaseWorkerSessionCount(InetSocketAddress worker) {
-        this.workerMsessionIpsAccessLock.writeLock().lock();
+    public void decreaseWorkerSessionCount(SocketAddress worker) {
+        this.workerTcpSessionIpsAccessLock.writeLock().lock();
         try {
-            final Integer old = this.workerIp2Players.get(worker);
+            final Integer old = this.workerIp2PlayerCounters.get(worker);
             if (old == null) {
                 Freesia.LOGGER.warn("Trying to decrease session count for unregisted worker msession address: {}!", worker);
                 return;
             }
 
-            this.workerIp2Players.put(worker, Math.max(0, old - 1));
+            this.workerIp2PlayerCounters.put(worker, Math.max(0, old - 1));
         }finally {
-            this.workerMsessionIpsAccessLock.writeLock().unlock();
+            this.workerTcpSessionIpsAccessLock.writeLock().unlock();
         }
     }
 
-    public void increaseWorkerSessionCount(InetSocketAddress worker) {
-        this.workerMsessionIpsAccessLock.writeLock().lock();
+    public void increaseWorkerSessionCount(SocketAddress worker) {
+        this.workerTcpSessionIpsAccessLock.writeLock().lock();
         try {
-            final Integer old = this.workerIp2Players.get(worker);
+            final Integer old = this.workerIp2PlayerCounters.get(worker);
             if (old == null) {
                 Freesia.LOGGER.warn("Trying to increase session count for unregisted worker msession address: {}!", worker);
                 return;
             }
 
-            this.workerIp2Players.put(worker, old + 1);
+            this.workerIp2PlayerCounters.put(worker, old + 1);
         }finally {
-            this.workerMsessionIpsAccessLock.writeLock().unlock();
+            this.workerTcpSessionIpsAccessLock.writeLock().unlock();
         }
     }
 
@@ -85,7 +89,7 @@ public class YsmMapperPayloadManager {
     }
 
     public void updateWorkerPlayerEntityId(Player target, int entityId){
-        final MapperSessionProcessor mapper = this.mapperSessions.get(target);
+        final MapperConnectionHandler mapper = this.sessions.get(target);
 
         if (mapper == null) {
             throw new IllegalStateException("Mapper not created yet!");
@@ -97,7 +101,7 @@ public class YsmMapperPayloadManager {
     }
 
     public void updateRealPlayerEntityId(Player target, int entityId){
-        final MapperSessionProcessor mapper = this.mapperSessions.get(target);
+        final MapperConnectionHandler mapper = this.sessions.get(target);
 
         if (mapper == null) {
             throw new IllegalStateException("Mapper not created yet!");
@@ -108,16 +112,16 @@ public class YsmMapperPayloadManager {
         this.backendId2Mapper.put(entityId, mapper);
     }
 
-    private void disconnectMapperWithoutKickingMaster(@NotNull MapperSessionProcessor connection) {
+    private void disconnectMapperWithoutKickingMaster(@NotNull MapperConnectionHandler connection) {
         connection.setKickMasterWhenDisconnect(false);
         connection.destroyAndAwaitDisconnected();
     }
 
-    public MapperSessionProcessor sessionProcessorByEntityId(int entityId) {
+    public MapperConnectionHandler sessionProcessorByEntityId(int entityId) {
         return this.backendId2Mapper.get(entityId);
     }
 
-    public MapperSessionProcessor sessionProcessorByWorkerEntityId(int workerEntityId) {
+    public MapperConnectionHandler sessionProcessorByWorkerEntityId(int workerEntityId) {
         return this.workerId2Mapper.get(workerEntityId);
     }
 
@@ -136,14 +140,14 @@ public class YsmMapperPayloadManager {
     public void onPlayerDisconnect(@NotNull Player player) {
         this.ysmInstalledPlayers.remove(player.getUniqueId());
 
-        final MapperSessionProcessor mapperSession = this.mapperSessions.remove(player);
+        final MapperConnectionHandler mapperSession = this.sessions.remove(player);
 
         if (mapperSession != null) {
             this.disconnectMapperWithoutKickingMaster(mapperSession);
         }
     }
 
-    protected void onWorkerSessionDisconnect(@NotNull MapperSessionProcessor mapperSession, boolean kickMaster, @Nullable Component reason) {
+    protected void onWorkerSessionDisconnect(@NotNull MapperConnectionHandler mapperSession, boolean kickMaster, @Nullable Component reason) {
         // Kick the master it binds
         if (kickMaster)
             mapperSession.getBindPlayer().disconnect(Freesia.languageManager.i18n(
@@ -153,7 +157,7 @@ public class YsmMapperPayloadManager {
             ));
 
         // Remove from list
-        this.mapperSessions.remove(mapperSession.getBindPlayer());
+        this.sessions.remove(mapperSession.getBindPlayer());
 
         // remove entity id mappings (backend)
         final int backendEntityId = mapperSession.getPacketProxy().getPlayerEntityId();
@@ -167,7 +171,7 @@ public class YsmMapperPayloadManager {
             this.workerId2Mapper.remove(workerEntityId);
         }
 
-        final InetSocketAddress workerAddress = mapperSession.getWorkerAddress();
+        final SocketAddress workerAddress = mapperSession.getWorkerAddress();
         if (workerAddress != null) {
             this.decreaseWorkerSessionCount(workerAddress);
         }
@@ -179,7 +183,7 @@ public class YsmMapperPayloadManager {
             return;
         }
 
-        final MapperSessionProcessor mapperSession = this.mapperSessions.get(player);
+        final MapperConnectionHandler mapperSession = this.sessions.get(player);
 
         if (mapperSession == null) {
             // Actually it shouldn't be and never be happened
@@ -190,7 +194,7 @@ public class YsmMapperPayloadManager {
     }
 
     public void onBackendReady(Player player) {
-        final MapperSessionProcessor mapperSession = this.mapperSessions.get(player);
+        final MapperConnectionHandler mapperSession = this.sessions.get(player);
 
         if (mapperSession == null) {
             //race condition: already disconnected
@@ -201,7 +205,7 @@ public class YsmMapperPayloadManager {
     }
 
     public boolean disconnectAlreadyConnected(Player player) {
-        final MapperSessionProcessor current = this.mapperSessions.get(player);
+        final MapperConnectionHandler current = this.sessions.get(player);
 
         // Not exists or created
         if (current == null) {
@@ -214,35 +218,41 @@ public class YsmMapperPayloadManager {
     }
 
     public void initMapperPacketProcessor(@NotNull Player player) {
-        final MapperSessionProcessor possiblyExisting = this.mapperSessions.get(player);
+        final MapperConnectionHandler possiblyExisting = this.sessions.get(player);
 
         if (possiblyExisting != null) {
             throw new IllegalStateException("Mapper session already exists for player " + player.getUsername());
         }
 
         final YsmPacketProxy packetProxy = this.packetProxyCreator.apply(player);
-        final MapperSessionProcessor processor = new MapperSessionProcessor(player, packetProxy, this);
+        final MapperConnectionHandler processor = new MapperConnectionHandler(player, packetProxy, this);
 
         packetProxy.setParentHandler(processor);
 
-        this.mapperSessions.put(player, processor);
+        this.sessions.put(player, processor);
     }
 
-    public void createMapperSession(@NotNull Player player, @NotNull InetSocketAddress backend) {
+    public void createMapperSession(@NotNull Player player, @NotNull SocketAddress backend) {
+        final MinecraftProtocol mcProtocol = new MinecraftProtocol(
+                new GameProfile(
+                        player.getUniqueId(),
+                        player.getUsername()),
+                null
+        );
+
         // Instance new session
-        final TcpClientSession mapperSession = new TcpClientSession(
-                backend.getHostName(),
-                backend.getPort(),
-                new MinecraftProtocol(
-                        new GameProfile(
-                                player.getUniqueId(),
-                                player.getUsername()),
-                        null
-                )
+        final TcpSession mapperSession = backend instanceof DomainSocketAddress dsa ? new UnixDomainsSocketClientSession(
+                dsa.path(),
+                mcProtocol
+        ) :
+        new TcpClientSession(
+                ((InetSocketAddress) backend).getHostName(),
+                ((InetSocketAddress) backend).getPort(),
+                mcProtocol
         );
 
         // Our packet processor for packet forwarding
-        final MapperSessionProcessor packetProcessor = this.mapperSessions.get(player);
+        final MapperConnectionHandler packetProcessor = this.sessions.get(player);
 
         if (packetProcessor == null) {
             // Should be created in ServerPreConnectEvent
@@ -265,7 +275,7 @@ public class YsmMapperPayloadManager {
     }
 
     public void onRealPlayerTrackerUpdate(Player beingWatched, Player watcher) {
-        final MapperSessionProcessor mapperSession = this.mapperSessions.get(beingWatched);
+        final MapperConnectionHandler mapperSession = this.sessions.get(beingWatched);
 
         // The mapper was created earlier than the player's connection turned in-game state
         // so as the result, we could simply pass it down directly
@@ -285,15 +295,15 @@ public class YsmMapperPayloadManager {
     }
 
     @Nullable
-    private InetSocketAddress selectLessPlayer() {
-        this.workerMsessionIpsAccessLock.readLock().lock();
+    private SocketAddress selectLessPlayer() {
+        this.workerTcpSessionIpsAccessLock.readLock().lock();
         try {
-            InetSocketAddress result = null;
+            SocketAddress result = null;
 
             int idx = 0;
             int lastCount = 0;
-            for (Map.Entry<InetSocketAddress, Integer> entry : this.workerIp2Players.entrySet()) {
-                final InetSocketAddress currAddress = entry.getKey();
+            for (Map.Entry<SocketAddress, Integer> entry : this.workerIp2PlayerCounters.entrySet()) {
+                final SocketAddress currAddress = entry.getKey();
                 final int currPlayerCount = entry.getValue();
 
                 if (idx == 0) {
@@ -311,7 +321,7 @@ public class YsmMapperPayloadManager {
 
             return result;
         } finally {
-            this.workerMsessionIpsAccessLock.readLock().unlock();
+            this.workerTcpSessionIpsAccessLock.readLock().unlock();
         }
     }
 }

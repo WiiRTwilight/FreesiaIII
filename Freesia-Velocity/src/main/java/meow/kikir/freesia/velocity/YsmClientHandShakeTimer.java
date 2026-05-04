@@ -56,7 +56,7 @@ public class YsmClientHandShakeTimer implements Runnable {
                 }
 
                 if (System.nanoTime() - joinTimeNanos > this.timeOut) {
-                    if (!FreesiaConfig.kickIfYsmNotInstalled || Freesia.mapperManager.isPlayerInstalledYsm(target)) {
+                    if (!FreesiaConfig.kickIfYsmNotInstalled || Freesia.mappersManager.isPlayerInstalledYsm(target)) {
                         this.lastNotDetected.remove(target);
                         continue;
                     }

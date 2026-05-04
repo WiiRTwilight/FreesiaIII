@@ -1,10 +1,11 @@
 package meow.kikir.freesia.velocity.utils;
 
+import meow.kikir.freesia.velocity.network.ysm.MapperConnectionHandler;
 import net.kyori.adventure.key.Key;
 
 /**
  * Pending packet object for callback processing
- * @see meow.kikir.freesia.velocity.network.ysm.MapperSessionProcessor
+ * @see MapperConnectionHandler
  * @param channel Channel name of the packet
  * @param data Data of the packet
  */

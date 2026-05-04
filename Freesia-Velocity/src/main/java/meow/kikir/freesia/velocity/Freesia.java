@@ -27,8 +27,8 @@ import meow.kikir.freesia.velocity.command.ReloadModelsCommand;
 import meow.kikir.freesia.velocity.i18n.I18NManager;
 import meow.kikir.freesia.velocity.network.backend.MasterServerMessageHandler;
 import meow.kikir.freesia.velocity.network.mc.FreesiaPlayerTracker;
-import meow.kikir.freesia.velocity.network.ysm.RealPlayerYsmPacketProxyImpl;
-import meow.kikir.freesia.velocity.network.ysm.YsmMapperPayloadManager;
+import meow.kikir.freesia.velocity.network.ysm.RealPlayerYsmPacketProxy;
+import meow.kikir.freesia.velocity.network.ysm.MappersManager;
 import meow.kikir.freesia.velocity.storage.DefaultRealPlayerDataStorageManagerImpl;
 import meow.kikir.freesia.velocity.storage.IDataStorageManager;
 import net.kyori.adventure.text.Component;
@@ -55,7 +55,7 @@ public class Freesia {
     public static Logger LOGGER = null;
     public static ProxyServer PROXY_SERVER = null;
     public static YsmClientHandShakeTimer kickChecker;
-    public static YsmMapperPayloadManager mapperManager;
+    public static MappersManager mappersManager;
     public static NettySocketServer masterServer;
 
     @Inject
@@ -100,12 +100,12 @@ public class Freesia {
 
         LOGGER.info("Registering events and packet listeners.");
         // Mapper (Core function)
-        mapperManager = new YsmMapperPayloadManager(RealPlayerYsmPacketProxyImpl::new);
+        mappersManager = new MappersManager(RealPlayerYsmPacketProxy::new);
         // Attach to ysm channel
-        this.proxyServer.getChannelRegistrar().register(YsmMapperPayloadManager.YSM_CHANNEL_KEY_VELOCITY);
+        this.proxyServer.getChannelRegistrar().register(MappersManager.YSM_CHANNEL_KEY_VELOCITY);
         // Init tracker
         tracker.init();
-        tracker.addRealPlayerTrackerEventListener(mapperManager::onRealPlayerTrackerUpdate);
+        tracker.addRealPlayerTrackerEventListener(mappersManager::onRealPlayerTrackerUpdate);
 
         // Master controller service
         masterServer = new NettySocketServer(FreesiaConfig.masterServiceAddress, c -> new MasterServerMessageHandler());
@@ -128,7 +128,7 @@ public class Freesia {
         final Player targetPlayer = event.getPlayer();
 
         return EventTask.async(() -> {
-            mapperManager.onPlayerDisconnect(targetPlayer);
+            mappersManager.onPlayerDisconnect(targetPlayer);
             kickChecker.onPlayerLeft(targetPlayer);
         });
     }
@@ -149,7 +149,7 @@ public class Freesia {
 
         // Create mapper processor here
         return EventTask.async(() -> {
-            final boolean potentialDisconnected = mapperManager.disconnectAlreadyConnected(player);
+            final boolean potentialDisconnected = mappersManager.disconnectAlreadyConnected(player);
 
             if (potentialDisconnected) {
                 // Player switched server, do log
@@ -157,13 +157,13 @@ public class Freesia {
             }
 
             // Re init after removed or init on first connected
-            mapperManager.initMapperPacketProcessor(player);
+            mappersManager.initMapperPacketProcessor(player);
 
             // Create or re-create mapper session
 
             this.logger.info("Initiating mapper session for player {}", player.getUsername());
 
-            mapperManager.autoCreateMapper(player);
+            mappersManager.autoCreateMapper(player);
         });
     }
 
@@ -174,14 +174,14 @@ public class Freesia {
 
         if ((identifier instanceof MinecraftChannelIdentifier mineId) && (event.getSource() instanceof Player player)) {
             // skip non-ysm channel
-            if (!mineId.equals(YsmMapperPayloadManager.YSM_CHANNEL_KEY_VELOCITY)) {
+            if (!mineId.equals(MappersManager.YSM_CHANNEL_KEY_VELOCITY)) {
                 return;
             }
             
             event.setResult(PluginMessageEvent.ForwardResult.handled());
 
             // TODO Need a packet rate limiter here?
-            mapperManager.onPluginMessageIn(player, mineId, data);
+            mappersManager.onPluginMessageIn(player, mineId, data);
         }
     }
 
@@ -195,10 +195,10 @@ public class Freesia {
             logger.info("Entity id update for player {} to {}", target.getUsername(), entityId);
 
             // Update id and try notifying update once
-            mapperManager.updateRealPlayerEntityId(target, entityId);
+            mappersManager.updateRealPlayerEntityId(target, entityId);
 
             // Finalize callbacks
-            PROXY_SERVER.getScheduler().buildTask(this, () -> mapperManager.onBackendReady(target)).schedule();
+            PROXY_SERVER.getScheduler().buildTask(this, () -> mappersManager.onBackendReady(target)).schedule();
         }
     }
 

@@ -24,11 +24,11 @@ import java.util.concurrent.CompletableFuture;
  * <p>
  *
  */
-public abstract class YsmPacketProxyLayer implements YsmPacketProxy{
+public abstract class YsmPacketProxyBase implements YsmPacketProxy{
     protected final Player player;
     protected final UUID playerUUID;
 
-    protected volatile MapperSessionProcessor handler;
+    protected volatile MapperConnectionHandler handler;
 
     private int playerEntityId = -1;
     private int workerEntityId = -1;
@@ -39,21 +39,21 @@ public abstract class YsmPacketProxyLayer implements YsmPacketProxy{
 
     private boolean proxyReady = false;
 
-    protected static final VarHandle ENTITY_DATA_REF_COUNT_HANDLE = ConcurrentUtil.getVarHandle(YsmPacketProxyLayer.class, "entityDataReferenceCount", int.class);
-    protected static final VarHandle PROXY_READY_HANDLE = ConcurrentUtil.getVarHandle(YsmPacketProxyLayer.class, "proxyReady", boolean.class);
+    protected static final VarHandle ENTITY_DATA_REF_COUNT_HANDLE = ConcurrentUtil.getVarHandle(YsmPacketProxyBase.class, "entityDataReferenceCount", int.class);
+    protected static final VarHandle PROXY_READY_HANDLE = ConcurrentUtil.getVarHandle(YsmPacketProxyBase.class, "proxyReady", boolean.class);
 
-    protected static final VarHandle PLAYER_ENTITY_ID_HANDLE = ConcurrentUtil.getVarHandle(YsmPacketProxyLayer.class, "playerEntityId", int.class);
-    protected static final VarHandle WORKER_ENTITY_ID_HANDLE = ConcurrentUtil.getVarHandle(YsmPacketProxyLayer.class, "workerEntityId", int.class);
+    protected static final VarHandle PLAYER_ENTITY_ID_HANDLE = ConcurrentUtil.getVarHandle(YsmPacketProxyBase.class, "playerEntityId", int.class);
+    protected static final VarHandle WORKER_ENTITY_ID_HANDLE = ConcurrentUtil.getVarHandle(YsmPacketProxyBase.class, "workerEntityId", int.class);
 
-    protected static final VarHandle LAST_YSM_MODEL_DATA_HANDLE = ConcurrentUtil.getVarHandle(YsmPacketProxyLayer.class, "lastYsmModelData", byte[].class);
-    protected static final VarHandle LAST_YSM_ANIMATION_DATA_HANDLE = ConcurrentUtil.getVarHandle(YsmPacketProxyLayer.class, "lastYsmAnimationData", byte[].class);
+    protected static final VarHandle LAST_YSM_MODEL_DATA_HANDLE = ConcurrentUtil.getVarHandle(YsmPacketProxyBase.class, "lastYsmModelData", byte[].class);
+    protected static final VarHandle LAST_YSM_ANIMATION_DATA_HANDLE = ConcurrentUtil.getVarHandle(YsmPacketProxyBase.class, "lastYsmAnimationData", byte[].class);
 
-    protected YsmPacketProxyLayer(UUID playerUUID) {
+    protected YsmPacketProxyBase(UUID playerUUID) {
         this.player = Freesia.PROXY_SERVER.getPlayer(playerUUID).orElse(null); // Get if it is a real player
         this.playerUUID = playerUUID;
     }
 
-    protected YsmPacketProxyLayer(@NotNull Player player) {
+    protected YsmPacketProxyBase(@NotNull Player player) {
         this.player = player;
         this.playerUUID = player.getUniqueId();
     }
@@ -163,7 +163,7 @@ public abstract class YsmPacketProxyLayer implements YsmPacketProxy{
     }
 
     @Override
-    public void setParentHandler(MapperSessionProcessor handler) {
+    public void setParentHandler(MapperConnectionHandler handler) {
         this.handler = handler;
     }
 
@@ -252,7 +252,7 @@ public abstract class YsmPacketProxyLayer implements YsmPacketProxy{
                 // If it is a real player
                 if (queryResult.isPresent()) {
                     // Check ysm installed
-                    if (Freesia.mapperManager.isPlayerInstalledYsm(toSend)) {
+                    if (Freesia.mappersManager.isPlayerInstalledYsm(toSend)) {
                         this.sendModelDataToRaw(toSend, currEntityId, currModelData);
                         this.sendAnimationDataToRaw(toSend, currEntityId, currAnimationData);
                     }

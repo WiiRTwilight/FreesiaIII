@@ -5,6 +5,7 @@ import meow.kikir.freesia.velocity.network.ysm.ProxyComputeResult;
 import meow.kikir.freesia.velocity.network.ysm.protocol.EntityIdRemappablePacket;
 import meow.kikir.freesia.velocity.network.ysm.protocol.YsmPacket;
 import meow.kikir.freesia.common.utils.SimpleFriendlyByteBuf;
+import meow.kikir.freesia.velocity.network.ysm.protocol.packets.s2c.S2CMolangExecutePacket;
 import org.jetbrains.annotations.NotNull;
 
 public class C2SMolangExecuteRequestPacket implements YsmPacket, EntityIdRemappablePacket {
@@ -32,6 +33,10 @@ public class C2SMolangExecuteRequestPacket implements YsmPacket, EntityIdRemappa
 
     @Override
     public ProxyComputeResult handle(@NotNull MapperConnectionHandler handler) {
-        return ProxyComputeResult.ofPass();
+        final S2CMolangExecutePacket response = new S2CMolangExecutePacket(new int[]{this.entityId}, this.expression);
+
+        handler.getPacketProxy().sendYsmPacket(response);
+
+        return ProxyComputeResult.ofDrop();
     }
 }

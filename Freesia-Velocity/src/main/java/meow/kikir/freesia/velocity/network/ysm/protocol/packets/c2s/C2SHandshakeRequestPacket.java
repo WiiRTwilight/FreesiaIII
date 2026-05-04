@@ -3,6 +3,7 @@ package meow.kikir.freesia.velocity.network.ysm.protocol.packets.c2s;
 import com.velocitypowered.api.event.ResultedEvent;
 import com.velocitypowered.api.proxy.Player;
 import meow.kikir.freesia.velocity.Freesia;
+import meow.kikir.freesia.velocity.YsmProtocolMetaFile;
 import meow.kikir.freesia.velocity.events.PlayerYsmHandshakeEvent;
 import meow.kikir.freesia.velocity.network.ysm.MapperConnectionHandler;
 import meow.kikir.freesia.velocity.network.ysm.ProxyComputeResult;
@@ -12,6 +13,14 @@ import org.jetbrains.annotations.NotNull;
 
 public class C2SHandshakeRequestPacket implements YsmPacket {
     private String clientYsmVersion;
+
+    public C2SHandshakeRequestPacket() {
+        this(YsmProtocolMetaFile.getYsmChannelPath().replace("_", "."));
+    }
+
+    public C2SHandshakeRequestPacket(String clientYsmVersion) {
+        this.clientYsmVersion = clientYsmVersion;
+    }
 
     @Override
     public void encode(@NotNull SimpleFriendlyByteBuf output) {

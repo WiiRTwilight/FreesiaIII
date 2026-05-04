@@ -33,7 +33,7 @@ public abstract class YsmPacketProxyBase implements YsmPacketProxy{
     private int playerEntityId = -1;
     private int workerEntityId = -1;
 
-    private int entityDataReferenceCount = 0; // Used for read-writing lock but writing is always happening on a single thread
+    private int entityDataReferenceCount = 0;
     private byte[] lastYsmModelData = null;
     private byte[] lastYsmAnimationData = null;
 
@@ -232,6 +232,9 @@ public abstract class YsmPacketProxyBase implements YsmPacketProxy{
                 // Done queued tracker updates
                 this.handler.retireTrackerCallbacks();
             }
+
+            // retire proxy ready callback
+            this.onProxyReadyCallback();
         }
 
         // Sync to the owner self

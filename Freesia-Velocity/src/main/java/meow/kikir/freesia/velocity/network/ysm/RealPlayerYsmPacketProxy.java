@@ -2,12 +2,16 @@ package meow.kikir.freesia.velocity.network.ysm;
 
 import com.velocitypowered.api.proxy.Player;
 import meow.kikir.freesia.velocity.Freesia;
+import meow.kikir.freesia.velocity.YsmProtocolMetaFile;
 import meow.kikir.freesia.velocity.network.ysm.protocol.EnumPacketDirection;
 import meow.kikir.freesia.velocity.network.ysm.protocol.YsmPacket;
 import meow.kikir.freesia.velocity.network.ysm.protocol.YsmPacketCodec;
 import meow.kikir.freesia.common.utils.SimpleFriendlyByteBuf;
 import io.netty.buffer.ByteBuf;
+import meow.kikir.freesia.velocity.network.ysm.protocol.packets.c2s.C2SHandshakeRequestPacket;
 import net.kyori.adventure.key.Key;
+import org.geysermc.mcprotocollib.protocol.packet.common.serverbound.ServerboundCustomPayloadPacket;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.Set;
 import java.util.UUID;
@@ -46,5 +50,29 @@ public class RealPlayerYsmPacketProxy extends YsmPacketProxyBase {
         }
 
         return ProxyComputeResult.ofPass();
+    }
+
+    // TODO - Remove after fixed
+    @Override
+    public void onProxyReadyCallback() {
+        if (this.player == null) {
+            return;
+        }
+
+        if (!Freesia.mappersManager.isInitiallyHandshakeReplied(this.player)) {
+            return;
+        }
+
+        final MapperConnectionHandler connectionHandler = this.handler;
+
+        if (connectionHandler != null) {
+            final C2SHandshakeRequestPacket spoof = new C2SHandshakeRequestPacket();
+            final @NotNull SimpleFriendlyByteBuf encoded = YsmPacketCodec.encode(spoof);
+
+            final byte[] encodedInBytes = new byte[encoded.readableBytes()];
+            encoded.readBytes(encodedInBytes);
+
+            connectionHandler.sendPacket(new ServerboundCustomPayloadPacket(MappersManager.YSM_CHANNEL_KEY_ADVENTURE, encodedInBytes));
+        }
     }
 }

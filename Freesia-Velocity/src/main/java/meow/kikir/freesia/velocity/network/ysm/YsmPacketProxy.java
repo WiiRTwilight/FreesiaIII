@@ -45,6 +45,8 @@ public interface YsmPacketProxy {
 
     default void executeMolang(int[] entityIds, String expression) {}
 
+    default void onProxyReadyCallback() {}
+
 
     /*
     下面的都是方便从 velocity 向玩家发包用的了(x)

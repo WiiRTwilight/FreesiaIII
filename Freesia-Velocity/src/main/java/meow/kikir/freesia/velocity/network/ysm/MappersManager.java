@@ -19,6 +19,7 @@ import org.geysermc.mcprotocollib.network.tcp.TcpSession;
 import org.geysermc.mcprotocollib.protocol.MinecraftProtocol;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jspecify.annotations.NonNull;
 
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
@@ -45,6 +46,8 @@ public class MappersManager {
 
     // The players who installed ysm(Used for packet sending reduction)
     private final Set<UUID> ysmInstalledPlayers = Sets.newConcurrentHashSet();
+    // TODO - Remove - This is a hotfix for ysm
+    private final Set<UUID> handshakeRepliedInitiallyPlayers = Sets.newConcurrentHashSet();
 
     public MappersManager(Function<Player, YsmPacketProxy> packetProxyCreator) {
         this.packetProxyCreator = packetProxyCreator;
@@ -85,7 +88,16 @@ public class MappersManager {
     }
 
     public void onClientYsmHandshakePacketReply(@NotNull Player target) {
-        this.ysmInstalledPlayers.add(target.getUniqueId());
+        final UUID targetUUID = target.getUniqueId();
+
+        this.ysmInstalledPlayers.add(targetUUID);
+        // TODO - Remove after fixed
+        this.handshakeRepliedInitiallyPlayers.add(targetUUID);
+    }
+
+    // TODO - Remove after fixed
+    public boolean isInitiallyHandshakeReplied(@NonNull Player player) {
+        return this.handshakeRepliedInitiallyPlayers.contains(player.getUniqueId());
     }
 
     public void updateWorkerPlayerEntityId(Player target, int entityId){
@@ -138,7 +150,11 @@ public class MappersManager {
     }
 
     public void onPlayerDisconnect(@NotNull Player player) {
-        this.ysmInstalledPlayers.remove(player.getUniqueId());
+        final UUID playerUUID = player.getUniqueId();
+
+        this.ysmInstalledPlayers.remove(playerUUID);
+        // TODO - Remove after fixed
+        this.handshakeRepliedInitiallyPlayers.remove(playerUUID);
 
         final MapperConnectionHandler mapperSession = this.sessions.remove(player);
 

@@ -11,25 +11,37 @@ import java.net.InetSocketAddress;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Function;
 
 public class NettySocketClient {
     private final EventLoopGroup clientEventLoopGroup = NettyUtils.eventLoopGroup();
     private final Class<? extends Channel> clientChannelType = NettyUtils.channelClass();
-    private final InetSocketAddress masterAddress;
+    private final InetSocketAddress serverAddress;
     private final Queue<IMessage<?>> packetFlushQueue = new ConcurrentLinkedQueue<>();
-    private final Function<Channel, SimpleChannelInboundHandler<?>> handlerCreator;
+    private final Function<Channel, SimpleChannelInboundHandler<?>> handlerFactory;
     private final int reconnectInterval;
+
     private volatile Channel channel;
     private volatile boolean isConnected = false;
-    private final AtomicBoolean workerReady = new AtomicBoolean(false);
+    private volatile boolean workerReady = false;
 
-    public NettySocketClient(InetSocketAddress masterAddress, Function<Channel, SimpleChannelInboundHandler<?>> handlerCreator, int reconnectInterval) {
-        this.masterAddress = masterAddress;
-        this.handlerCreator = handlerCreator;
+    public NettySocketClient(InetSocketAddress serverAddress, Function<Channel, SimpleChannelInboundHandler<?>> handlerFactory, int reconnectInterval) {
+        this.serverAddress = serverAddress;
+        this.handlerFactory = handlerFactory;
         this.reconnectInterval = reconnectInterval;
+    }
+
+    public void attachShutdownHook() {
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            Channel ch = this.channel;
+
+            if (ch != null) {
+                ch.close();
+            }
+
+            this.clientEventLoopGroup.shutdownGracefully();
+        }));
     }
 
     public void connect() {
@@ -42,11 +54,11 @@ public class NettySocketClient {
                     .handler(new ChannelInitializer<>() {
                         @Override
                         protected void initChannel(@NotNull Channel channel) {
-                            DefaultChannelPipelineLoader.loadDefaultHandlers(channel);
-                            channel.pipeline().addLast(NettySocketClient.this.handlerCreator.apply(channel));
+                            ChannelPipelineLoader.loadDefaultHandlers(channel);
+                            channel.pipeline().addLast(NettySocketClient.this.handlerFactory.apply(channel));
                         }
                     })
-                    .connect(this.masterAddress.getHostName(), this.masterAddress.getPort())
+                    .connect(this.serverAddress)
                     .syncUninterruptibly();
             this.isConnected = true;
         } catch (Exception e) {
@@ -88,35 +100,15 @@ public class NettySocketClient {
         }
     }
 
-    public void sendToMaster(IMessage<?> message) {
-        this.sendToMaster0(message, this.channel);
-    }
-
-    public void sendToMaster0(IMessage<?> message, Channel ch) {
-        if (ch == null || !ch.isActive()) {
-            this.packetFlushQueue.offer(message);
-            return;
-        }
-
-        if (!ch.eventLoop().inEventLoop()) {
-            ch.eventLoop().execute(() -> this.sendToMaster(message));
-            return;
-        }
-
-        this.flushMessageQueueIfNeeded();
-
-        ch.writeAndFlush(message);
-    }
-
     public void resetReadyFlag() {
-        this.workerReady.set(false);
+        this.workerReady = false;
     }
 
     public void onReady() {
-        this.workerReady.set(true);
+        this.workerReady = true;
     }
 
     public boolean isReady() {
-        return this.workerReady.get();
+        return this.workerReady;
     }
 }

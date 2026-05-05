@@ -6,6 +6,8 @@ import meow.kikir.freesia.worker.FreesiaWorkerConfig;
 import meow.kikir.freesia.worker.utils.ServerConnectionListenerHijack;
 import net.minecraft.server.dedicated.DedicatedServer;
 import net.minecraft.server.network.ServerConnectionListener;
+import org.slf4j.Logger;
+import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -20,6 +22,10 @@ import java.nio.file.Path;
 public abstract class DedicatedServerMixin {
     @Shadow
     public abstract String getServerIp();
+
+    @Shadow
+    @Final
+    private static Logger LOGGER;
 
     @Redirect(method = "initServer", at = @At(value = "INVOKE", target = "Ljava/lang/String;isEmpty()Z"))
     public boolean killIPDetect(String instance) {
@@ -38,6 +44,8 @@ public abstract class DedicatedServerMixin {
         if (localIp.isEmpty()) {
             localIp = "/tmp/freesia-worker-" + ProcessHandle.current().pid() + ".sock";
         }
+
+        LOGGER.info("Unix domain socket binding on {}", localIp);
 
         final Path localIpPath = Path.of(localIp);
 

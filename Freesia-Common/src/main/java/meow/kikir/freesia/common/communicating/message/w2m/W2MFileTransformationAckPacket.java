@@ -1,11 +1,11 @@
 package meow.kikir.freesia.common.communicating.message.w2m;
 
 import io.netty.buffer.ByteBuf;
-import meow.kikir.freesia.common.communicating.handler.NettyServerChannelHandlerLayer;
+import meow.kikir.freesia.common.communicating.handler.ServerChannelHandlerBase;
 import meow.kikir.freesia.common.communicating.message.IMessage;
 import org.jetbrains.annotations.NotNull;
 
-public class W2MFileTransformationAckPacket implements IMessage<NettyServerChannelHandlerLayer> {
+public class W2MFileTransformationAckPacket implements IMessage<ServerChannelHandlerBase> {
     private int traceId; // trace id for each file transferring
     private int ack; // current replied ack
 
@@ -29,7 +29,7 @@ public class W2MFileTransformationAckPacket implements IMessage<NettyServerChann
     }
 
     @Override
-    public void process(NettyServerChannelHandlerLayer handler) {
+    public void process(ServerChannelHandlerBase handler) {
         handler.handleFileAck(this.traceId, this.ack);
     }
 }

@@ -108,7 +108,7 @@ public class Freesia {
         tracker.addRealPlayerTrackerEventListener(mappersManager::onRealPlayerTrackerUpdate);
 
         // Master controller service
-        masterServer = new NettySocketServer(FreesiaConfig.masterServiceAddress, c -> new MasterServerMessageHandler());
+        masterServer = new NettySocketServer(FreesiaConfig.masterServiceAddress, MasterServerMessageHandler::new);
         masterServer.bind();
 
         LOGGER.info("Initiating client kicker.");

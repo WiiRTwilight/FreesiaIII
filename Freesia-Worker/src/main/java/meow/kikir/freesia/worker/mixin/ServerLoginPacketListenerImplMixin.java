@@ -114,17 +114,12 @@ public abstract class ServerLoginPacketListenerImplMixin {
 
         final int action = converted.readVarInt();
 
-        // TODO
-        switch (action) {
-            case 0 -> {
-                final RequestedPlayerData data = RequestedPlayerData.from(converted);
+        if (action == 0) {
+            final RequestedPlayerData data = RequestedPlayerData.from(converted);
 
-                this.playerDataFetchCallback.complete(data);
-            }
-
-            default -> {
-                throw new UnsupportedOperationException("Unknow action id: " + action);
-            }
+            this.playerDataFetchCallback.complete(data);
+        } else {
+            throw new UnsupportedOperationException("Unknow action id: " + action);
         }
     }
 
@@ -158,7 +153,8 @@ public abstract class ServerLoginPacketListenerImplMixin {
         EntryPoint.LOGGER_INST.info("Fetching player data for player {}.", requestedProfile.getName());
 
         this.requestForPlayerData(requestedProfile);
-        //Preload it to prevent load it blocking
+
+        // Preload it to prevent load it asynchronously
         this.playerDataFetchCallback.thenAcceptAsync(requestedPlayerData -> {
             if (requestedPlayerData != null) {
                 final CompoundTag decodedNbt = this.decodeNbtFrom(requestedPlayerData);

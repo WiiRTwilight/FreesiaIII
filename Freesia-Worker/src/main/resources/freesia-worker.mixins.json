@@ -9,6 +9,7 @@
     "EntityMixin",
     "LivingEntityMixin",
     "MinecraftServerMixin",
+    "PersistentEntitySectionManagerMixin",
     "PlayerDataStorageMixin",
     "PlayerListMixin",
     "ServerCommonPacketListenerImplMixin",

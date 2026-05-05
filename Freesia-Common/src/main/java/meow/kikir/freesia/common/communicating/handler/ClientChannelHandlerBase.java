@@ -1,5 +1,6 @@
 package meow.kikir.freesia.common.communicating.handler;
 
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import meow.kikir.freesia.common.EntryPoint;
@@ -18,11 +19,16 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
-public abstract class NettyClientChannelHandlerLayer extends SimpleChannelInboundHandler<IMessage<NettyClientChannelHandlerLayer>> {
+public abstract class ClientChannelHandlerBase extends SimpleChannelInboundHandler<IMessage<ClientChannelHandlerBase>> {
     private final Map<Integer, FileDispatchDesc> fileTransformationChannels = new ConcurrentHashMap<>();
+    private final Channel channel;
+
+    protected ClientChannelHandlerBase(Channel channel) {
+        this.channel = channel;
+    }
 
     @Override
-    protected void channelRead0(ChannelHandlerContext ctx, IMessage<NettyClientChannelHandlerLayer> msg) {
+    protected void channelRead0(ChannelHandlerContext ctx, IMessage<ClientChannelHandlerBase> msg) {
         try {
             msg.process(this);
         } catch (Exception e) {
@@ -44,8 +50,6 @@ public abstract class NettyClientChannelHandlerLayer extends SimpleChannelInboun
     }
 
     public abstract NettySocketClient getClient();
-
-    public abstract void onMasterPlayerDataResponse(int traceId, byte[] content);
 
     public abstract CompletableFuture<String> dispatchCommand(String command);
 
@@ -174,7 +178,7 @@ public abstract class NettyClientChannelHandlerLayer extends SimpleChannelInboun
                 offset += output.channel().write(buffer, offset);
             }
 
-            this.getClient().sendToMaster(new W2MFileTransformationAckPacket(traceId, ack));
+            this.sendToMaster(new W2MFileTransformationAckPacket(traceId, ack));
             EntryPoint.LOGGER_INST.info("Wrote file transformation chunk for path {} at offset {} (ack {}/{})", target, beginOffset, ack, tAck - 1);
         }catch (Throwable ex) {
             EntryPoint.LOGGER_INST.error("Failed to write file transformation chunk for path {} at offset {}", target, beginOffset, ex);
@@ -193,5 +197,22 @@ public abstract class NettyClientChannelHandlerLayer extends SimpleChannelInboun
                 throw new RuntimeException(e);
             }
         }
+    }
+
+    public void sendToMaster(IMessage<?> message) {
+        this.sendToMaster0(message, this.channel);
+    }
+
+    public void sendToMaster0(IMessage<?> message, Channel ch) {
+        if (ch == null || !ch.isActive()) {
+            return;
+        }
+
+        if (!ch.eventLoop().inEventLoop()) {
+            ch.eventLoop().execute(() -> this.sendToMaster(message));
+            return;
+        }
+
+        ch.writeAndFlush(message);
     }
 }

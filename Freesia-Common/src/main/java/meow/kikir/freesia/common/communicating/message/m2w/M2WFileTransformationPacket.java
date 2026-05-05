@@ -1,14 +1,14 @@
 package meow.kikir.freesia.common.communicating.message.m2w;
 
 import io.netty.buffer.ByteBuf;
-import meow.kikir.freesia.common.communicating.handler.NettyClientChannelHandlerLayer;
+import meow.kikir.freesia.common.communicating.handler.ClientChannelHandlerBase;
 import meow.kikir.freesia.common.communicating.message.IMessage;
 import org.jetbrains.annotations.NotNull;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 
-public class M2WFileTransformationPacket implements IMessage<NettyClientChannelHandlerLayer> {
+public class M2WFileTransformationPacket implements IMessage<ClientChannelHandlerBase> {
     private int traceId; // trace id for each file transferring
     private int ack; // current ack to reply
     private int tAck; // full ack count
@@ -73,7 +73,7 @@ public class M2WFileTransformationPacket implements IMessage<NettyClientChannelH
     }
 
     @Override
-    public void process(NettyClientChannelHandlerLayer handler) {
+    public void process(ClientChannelHandlerBase handler) {
         handler.handleFileTransformation(this.traceId, this.ack, this.tAck, this.beginOffset, this.target, this.data);
     }
 }

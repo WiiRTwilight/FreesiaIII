@@ -10,6 +10,7 @@ import meow.kikir.freesia.common.communicating.message.IMessage;
 import meow.kikir.freesia.common.communicating.message.m2w.M2WFileTransformationPacket;
 import meow.kikir.freesia.common.communicating.message.m2w.M2WReadyPacket;
 import meow.kikir.freesia.common.communicating.message.m2w.M2WReloadModelsCallCommand;
+import meow.kikir.freesia.common.data.WorkerInfo;
 import meow.kikir.freesia.common.utils.LinkedObjects;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -21,49 +22,42 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Map;
-import java.util.Queue;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public abstract class NettyServerChannelHandlerLayer extends SimpleChannelInboundHandler<IMessage<NettyServerChannelHandlerLayer>> {
+public abstract class ServerChannelHandlerBase extends SimpleChannelInboundHandler<IMessage<ServerChannelHandlerBase>> {
     private static final int FILE_CHUNK_SIZE = 1024 * 128; // 128 KB
-
-    private final Queue<IMessage<NettyClientChannelHandlerLayer>> pendingPackets = new ConcurrentLinkedQueue<>();
 
     // file transformations
     private final Map<Integer, FileChunks> fileTransferringRequests = new ConcurrentHashMap<>();
     private final Map<Integer, Runnable> fileTransferCallbacks = new ConcurrentHashMap<>();
     private final AtomicInteger fileTransferTraceIdGenerator = new AtomicInteger(0);
 
-    protected volatile UUID workerUUID;
-    protected volatile String workerName;
-    private Channel channel;
+    protected volatile WorkerInfo workerInfo;
+    private final Channel channel;
+
+    protected ServerChannelHandlerBase(Channel channel) {
+        this.channel = channel;
+    }
 
     @Override
     public void channelActive(@NotNull ChannelHandlerContext ctx) {
-        this.channel = ctx.channel();
         EntryPoint.LOGGER_INST.info("Worker connected {}", this.channel);
-
-        if (!this.pendingPackets.isEmpty()) {
-            IMessage<NettyClientChannelHandlerLayer> pending;
-            while ((pending = this.pendingPackets.poll()) != null) {
-                this.channel.writeAndFlush(pending);
-            }
-        }
 
         this.doSyncModels(false);
     }
 
     @Override
-    public void channelInactive(ChannelHandlerContext ctx) {
+    public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+        super.channelInactive(ctx);
+
         this.dropAllTransferringFiles();
     }
 
     @Override
-    protected void channelRead0(ChannelHandlerContext ctx, IMessage<NettyServerChannelHandlerLayer> msg) {
+    protected void channelRead0(ChannelHandlerContext ctx, IMessage<ServerChannelHandlerBase> msg) {
         try {
             msg.process(this);
         } catch (Exception e) {
@@ -72,13 +66,8 @@ public abstract class NettyServerChannelHandlerLayer extends SimpleChannelInboun
         }
     }
 
-    public void sendMessage(IMessage<NettyClientChannelHandlerLayer> packet) {
+    public void sendMessage(IMessage<ClientChannelHandlerBase> packet) {
         if (!this.channel.isOpen()) {
-            return;
-        }
-
-        if (this.channel == null) {
-            this.pendingPackets.offer(packet);
             return;
         }
 
@@ -87,17 +76,8 @@ public abstract class NettyServerChannelHandlerLayer extends SimpleChannelInboun
             return;
         }
 
-        if (!this.pendingPackets.isEmpty()) {
-            IMessage<NettyClientChannelHandlerLayer> pending;
-            while ((pending = this.pendingPackets.poll()) != null) {
-                this.channel.writeAndFlush(pending);
-            }
-        }
-
         this.channel.writeAndFlush(packet);
     }
-
-    public abstract CompletableFuture<byte[]> readPlayerData(UUID playerUUID);
 
     public abstract CompletableFuture<Void> savePlayerData(UUID playerUUID, byte[] content);
 
@@ -106,13 +86,10 @@ public abstract class NettyServerChannelHandlerLayer extends SimpleChannelInboun
     public void updateWorkerInfo(UUID workerUUID, String workerName) {
         EntryPoint.LOGGER_INST.info("Worker {} (UUID: {}) connected", workerName, workerUUID);
 
-        this.workerName = workerName;
-        this.workerUUID = workerUUID;
-
-        this.onWorkerInfoGet(this.workerUUID, this.workerName);
+        this.onWorkerInfoGet(new WorkerInfo(workerUUID, workerName));
     }
 
-    public abstract void onWorkerInfoGet(UUID workerUUID, String workerName);
+    public abstract void onWorkerInfoGet(WorkerInfo workerInfo);
 
     private void dropAllTransferringFiles() {
         for (Map.Entry<Integer, FileChunks> entry : this.fileTransferringRequests.entrySet()) {
@@ -169,7 +146,7 @@ public abstract class NettyServerChannelHandlerLayer extends SimpleChannelInboun
             callback.complete(null);
         }
 
-        callback.whenComplete((res, ex) -> {
+        callback.whenComplete((_, ex) -> {
             if (ex != null) {
                 // synchronization failed, throw exception and disconnect as we had a broken models folder
                 this.modelSynchronizedFailed(ex);

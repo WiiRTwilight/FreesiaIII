@@ -3,7 +3,6 @@ package meow.kikir.freesia.common.communicating;
 import meow.kikir.freesia.common.communicating.message.IMessage;
 import meow.kikir.freesia.common.communicating.message.m2w.M2WDispatchCommandMessage;
 import meow.kikir.freesia.common.communicating.message.m2w.M2WFileTransformationPacket;
-import meow.kikir.freesia.common.communicating.message.m2w.M2WPlayerDataResponseMessage;
 import meow.kikir.freesia.common.communicating.message.m2w.M2WReadyPacket;
 import meow.kikir.freesia.common.communicating.message.w2m.*;
 
@@ -18,9 +17,7 @@ public class BuiltinMessageRegistries {
     private static final AtomicInteger idGenerator = new AtomicInteger(0);
 
     static {
-        registerMessage(W2MPlayerDataGetRequestMessage.class, W2MPlayerDataGetRequestMessage::new);
         registerMessage(W2MUpdatePlayerDataRequestMessage.class, W2MUpdatePlayerDataRequestMessage::new);
-        registerMessage(M2WPlayerDataResponseMessage.class, M2WPlayerDataResponseMessage::new);
         registerMessage(W2MCommandResultMessage.class, W2MCommandResultMessage::new);
         registerMessage(M2WDispatchCommandMessage.class, M2WDispatchCommandMessage::new);
         registerMessage(W2MWorkerInfoMessage.class, W2MWorkerInfoMessage::new);

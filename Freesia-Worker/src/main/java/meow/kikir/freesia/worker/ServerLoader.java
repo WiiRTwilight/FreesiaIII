@@ -21,11 +21,13 @@ import java.util.concurrent.TimeUnit;
 
 public class ServerLoader implements DedicatedServerModInitializer {
     public static NettySocketClient clientInstance;
-    public static volatile WorkerMessageHandlerImpl workerConnection = new WorkerMessageHandlerImpl();
+    public static volatile WorkerMessageHandlerImpl workerConnection = new WorkerMessageHandlerImpl(null);
+
     public static MinecraftServer SERVER_INST;
     public static WorkerInfoFile workerInfoFile;
+
     public static Cache<UUID, CompoundTag> playerDataCache;
-    public static Map<UUID, Integer> playerEntityIdMap = new ConcurrentHashMap<>();
+    public static final Map<UUID, Integer> playerEntityIdMap = new ConcurrentHashMap<>();
 
     public static void connectToBackend() {
         EntryPoint.LOGGER_INST.info("Connecting to the master.");
@@ -51,12 +53,14 @@ public class ServerLoader implements DedicatedServerModInitializer {
                 .newBuilder()
                 .expireAfterWrite(FreesiaWorkerConfig.playerDataCacheInvalidateIntervalSeconds, TimeUnit.SECONDS)
                 .build();
-        clientInstance = new NettySocketClient(FreesiaWorkerConfig.masterServiceAddress, c -> workerConnection = new WorkerMessageHandlerImpl(), FreesiaWorkerConfig.reconnectInterval) {
+        clientInstance = new NettySocketClient(FreesiaWorkerConfig.masterServiceAddress, channel -> workerConnection = new WorkerMessageHandlerImpl(channel), FreesiaWorkerConfig.reconnectInterval) {
             @Override
             protected boolean shouldDoNextReconnect() {
                 return SERVER_INST == null || SERVER_INST.isRunning();
             }
         };
+
+        clientInstance.attachShutdownHook();
 
         connectToBackend();
     }

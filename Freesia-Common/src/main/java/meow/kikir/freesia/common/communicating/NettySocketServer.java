@@ -28,7 +28,7 @@ public class NettySocketServer {
                 .childHandler(new ChannelInitializer<>() {
                     @Override
                     protected void initChannel(@NotNull Channel channel) {
-                        DefaultChannelPipelineLoader.loadDefaultHandlers(channel);
+                        ChannelPipelineLoader.loadDefaultHandlers(channel);
                         channel.pipeline().addLast(NettySocketServer.this.handlerCreator.apply(channel));
                     }
                 })

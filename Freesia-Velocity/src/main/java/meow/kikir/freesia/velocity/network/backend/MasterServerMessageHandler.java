@@ -1,13 +1,14 @@
 package meow.kikir.freesia.velocity.network.backend;
 
 import com.google.common.collect.Maps;
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import meow.kikir.freesia.common.EntryPoint;
-import meow.kikir.freesia.common.communicating.handler.NettyServerChannelHandlerLayer;
+import meow.kikir.freesia.common.communicating.handler.ServerChannelHandlerBase;
 import meow.kikir.freesia.common.communicating.message.m2w.M2WDispatchCommandMessage;
+import meow.kikir.freesia.common.data.WorkerInfo;
 import meow.kikir.freesia.velocity.Freesia;
 import meow.kikir.freesia.velocity.FreesiaConstants;
-import meow.kikir.freesia.velocity.events.PlayerEntityDataLoadEvent;
 import meow.kikir.freesia.velocity.events.PlayerEntityDataStoreEvent;
 import meow.kikir.freesia.velocity.events.WorkerConnectedEvent;
 import net.kyori.adventure.text.Component;
@@ -24,17 +25,20 @@ import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.StampedLock;
 import java.util.function.Consumer;
 
-public class MasterServerMessageHandler extends NettyServerChannelHandlerLayer {
+public class MasterServerMessageHandler extends ServerChannelHandlerBase {
     private final Map<Integer, Consumer<String>> pendingCommandDispatches = Maps.newConcurrentMap();
     private final AtomicInteger traceIdGenerator = new AtomicInteger(0);
 
-    private boolean commandDispatcherRetired = false;
+    private volatile boolean commandDispatcherRetired = false;
     private final StampedLock commandDispatchCallbackLock = new StampedLock();
+
+    public MasterServerMessageHandler(Channel channel) {
+        super(channel);
+    }
 
     public void dispatchCommandToWorker(String command, Consumer<Component> onDispatched) {
         final long stamp = this.commandDispatchCallbackLock.readLock();
@@ -72,24 +76,38 @@ public class MasterServerMessageHandler extends NettyServerChannelHandlerLayer {
 
     @Nullable
     public UUID getWorkerUUID() {
-        return this.workerUUID;
+        final WorkerInfo local = this.workerInfo;
+
+        if (local == null) {
+            return null;
+        }
+
+        return local.workerUUID();
     }
 
     @Nullable
 
     public String getWorkerName() {
-        return this.workerName;
+        final WorkerInfo local = this.workerInfo;
+
+        if (local == null) {
+            return null;
+        }
+
+        return local.workerName();
     }
 
     @Override
     public void channelInactive(@NotNull ChannelHandlerContext ctx) {
         this.retireAllCommandDispatchCallbacks();
 
-        if (this.workerUUID == null) {
+        final WorkerInfo local = this.workerInfo;
+
+        if (local == null) {
             return;
         }
 
-        Freesia.registedWorkers.remove(this.workerUUID);
+        Freesia.registedWorkers.remove(local.workerUUID());
     }
 
     @Override
@@ -151,6 +169,7 @@ public class MasterServerMessageHandler extends NettyServerChannelHandlerLayer {
         final long stamp = this.commandDispatchCallbackLock.writeLock();
         try {
             this.commandDispatcherRetired = true;
+
             for (Map.Entry<Integer, Consumer<String>> entry : this.pendingCommandDispatches.entrySet()) {
                 entry.getValue().accept(null);
             }
@@ -162,44 +181,21 @@ public class MasterServerMessageHandler extends NettyServerChannelHandlerLayer {
     }
 
     @Override
-    public CompletableFuture<byte[]> readPlayerData(UUID playerUUID) {
-        final CompletableFuture<byte[]> callback = new CompletableFuture<>();
-        Freesia.realPlayerDataStorageManager
-                .loadPlayerData(playerUUID)
-                .thenApply(data -> Freesia.PROXY_SERVER
-                        .getEventManager()
-                        .fire(new PlayerEntityDataLoadEvent(playerUUID, data))
-                        .thenApply(PlayerEntityDataLoadEvent::getSerializedNbtData)
-                        .whenComplete((result, ex) -> {
-                            if (ex != null) {
-                                callback.completeExceptionally(ex);
-                                return;
-                            }
-
-                            callback.complete(result);
-                        })
-                );
-        return callback;
-    }
-
-    @Override
     public CompletableFuture<Void> savePlayerData(UUID playerUUID, byte[] content) {
         final CompletableFuture<Void> callback = new CompletableFuture<>();
 
         Freesia.PROXY_SERVER
                 .getEventManager()
                 .fire(new PlayerEntityDataStoreEvent(playerUUID, content))
-                .thenAccept(event -> {
-                    Freesia.realPlayerDataStorageManager.save(playerUUID, event.getSerializedNbtData())
-                            .whenComplete((res, ex) -> {
-                                if (ex != null) {
-                                    callback.completeExceptionally(ex);
-                                    return;
-                                }
+                .thenAccept(event -> Freesia.realPlayerDataStorageManager.save(playerUUID, event.getSerializedNbtData())
+                        .whenComplete((res, ex) -> {
+                            if (ex != null) {
+                                callback.completeExceptionally(ex);
+                                return;
+                            }
 
-                                callback.complete(res);
-                            });
-                });
+                            callback.complete(res);
+                        }));
 
         return callback;
     }
@@ -214,9 +210,9 @@ public class MasterServerMessageHandler extends NettyServerChannelHandlerLayer {
     }
 
     @Override
-    public void onWorkerInfoGet(UUID workerUUID, String workerName) {
-        Freesia.registedWorkers.put(workerUUID, this);
+    public void onWorkerInfoGet(WorkerInfo workerInfo) {
+        Freesia.registedWorkers.put(workerInfo.workerUUID(), this);
 
-        Freesia.PROXY_SERVER.getEventManager().fire(new WorkerConnectedEvent(workerUUID, workerName));
+        Freesia.PROXY_SERVER.getEventManager().fire(new WorkerConnectedEvent(workerInfo.workerUUID(), workerInfo.workerName()));
     }
 }

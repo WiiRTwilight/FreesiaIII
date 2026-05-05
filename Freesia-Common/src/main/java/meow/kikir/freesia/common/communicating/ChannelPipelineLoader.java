@@ -7,8 +7,7 @@ import meow.kikir.freesia.common.communicating.codec.MessageDecoder;
 import meow.kikir.freesia.common.communicating.codec.MessageEncoder;
 import org.jetbrains.annotations.NotNull;
 
-public class DefaultChannelPipelineLoader {
-
+public class ChannelPipelineLoader {
     public static void loadDefaultHandlers(@NotNull Channel channel) {
         channel.pipeline()
                 .addLast(new LengthFieldBasedFrameDecoder(Integer.MAX_VALUE, 0, 4, 0, 4))
@@ -16,5 +15,4 @@ public class DefaultChannelPipelineLoader {
                 .addLast(new MessageEncoder())
                 .addLast(new MessageDecoder());
     }
-
 }

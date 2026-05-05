@@ -84,9 +84,11 @@ public abstract class ServerChannelHandlerBase extends SimpleChannelInboundHandl
     public abstract void onCommandDispatchResult(int traceId, @Nullable String result);
 
     public void updateWorkerInfo(UUID workerUUID, String workerName) {
-        EntryPoint.LOGGER_INST.info("Worker {} (UUID: {}) connected", workerName, workerUUID);
+        this.workerInfo = new WorkerInfo(workerUUID, workerName);
 
-        this.onWorkerInfoGet(new WorkerInfo(workerUUID, workerName));
+        this.onWorkerInfoGet(this.workerInfo);
+
+        EntryPoint.LOGGER_INST.info("Worker {} (UUID: {}) connected", workerName, workerUUID);
     }
 
     public abstract void onWorkerInfoGet(WorkerInfo workerInfo);

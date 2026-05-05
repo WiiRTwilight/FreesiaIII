@@ -86,7 +86,6 @@ public class MasterServerMessageHandler extends ServerChannelHandlerBase {
     }
 
     @Nullable
-
     public String getWorkerName() {
         final WorkerInfo local = this.workerInfo;
 

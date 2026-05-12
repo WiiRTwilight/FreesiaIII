@@ -23,6 +23,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerLoginPacketListenerImpl;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
 import org.spongepowered.asm.mixin.*;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -73,6 +74,10 @@ public abstract class ServerLoginPacketListenerImplMixin {
     @Nullable
     private GameProfile authenticatedProfile;
 
+    @Shadow
+    @Final
+    private static Logger LOGGER;
+
     @Unique
     private void requestForPlayerData(@NotNull GameProfile profile) {
         final FriendlyByteBuf builtPayloadData = new FriendlyByteBuf(Unpooled.buffer());
@@ -118,6 +123,8 @@ public abstract class ServerLoginPacketListenerImplMixin {
             final RequestedPlayerData data = RequestedPlayerData.from(converted);
 
             this.playerDataFetchCallback.complete(data);
+
+            LOGGER.info("Done data synchronization for {}", this.authenticatedProfile);
         } else {
             throw new UnsupportedOperationException("Unknow action id: " + action);
         }
@@ -126,6 +133,10 @@ public abstract class ServerLoginPacketListenerImplMixin {
     @Unique
     public CompoundTag decodeNbtFrom(@NotNull RequestedPlayerData data) {
         final byte[] dataInBytes = data.getYsmNbtData();
+        
+        if (dataInBytes == null) {
+            return null;
+        }
 
         try {
             return  (CompoundTag) NbtIo.readAnyTag(new DataInputStream(new ByteArrayInputStream(dataInBytes)), NbtAccounter.unlimitedHeap());
@@ -156,22 +167,21 @@ public abstract class ServerLoginPacketListenerImplMixin {
 
         // Preload it to prevent load it asynchronously
         this.playerDataFetchCallback.thenAcceptAsync(requestedPlayerData -> {
-            if (requestedPlayerData != null) {
-                final CompoundTag decodedNbt = this.decodeNbtFrom(requestedPlayerData);
+            final CompoundTag decodedNbt = this.decodeNbtFrom(requestedPlayerData);
 
-                if (decodedNbt == null) {
-                    this.disconnect(Component.literal("Failed to decode player data!"));
-                    return;
-                }
-
+            if (decodedNbt != null) {
                 if (!requestedPlayerData.getRequestedPlayerUUID().equals(requestedProfile.getId())) {
                     this.disconnect(Component.literal("Received player data UUID does not match requested UUID!"));
                     return;
                 }
 
                 ServerLoader.playerDataCache.put(requestedProfile.getId(), decodedNbt);
-                ServerLoader.playerEntityIdMap.put(requestedProfile.getId(), requestedPlayerData.getEntityId());
+
+                return;
             }
+
+
+            ServerLoader.playerEntityIdMap.put(requestedProfile.getId(), requestedPlayerData.getEntityId());
 
             EntryPoint.LOGGER_INST.info("Pre-loaded player data for player {}.", requestedProfile.getName());
 

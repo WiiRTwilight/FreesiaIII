@@ -24,7 +24,14 @@ public class RequestedPlayerData {
 
         buf.writeUUID(requestedPlayerUUID);
         buf.writeInt(entityId);
-        buf.writeBytes(ysmNbtData);
+
+
+        if (ysmNbtData == null)
+            buf.writeInt(0);
+        else {
+            buf.writeInt(ysmNbtData.length);
+            buf.writeBytes(ysmNbtData);
+        }
 
         return buf;
     }
@@ -32,7 +39,13 @@ public class RequestedPlayerData {
     public void restoreFrom(@NotNull SimpleFriendlyByteBuf buf) {
         this.requestedPlayerUUID = buf.readUUID();
         this.entityId = buf.readInt();
-        this.ysmNbtData = new byte[buf.readableBytes()];
+
+        final int ysmNbtDataLen = buf.readInt();
+        if (ysmNbtDataLen <= 0) {
+            return;
+        }
+
+        this.ysmNbtData = new byte[ysmNbtDataLen];
         buf.readBytes(this.ysmNbtData);
     }
 

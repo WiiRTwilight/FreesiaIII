@@ -167,6 +167,12 @@ public abstract class ServerLoginPacketListenerImplMixin {
 
         // Preload it to prevent load it asynchronously
         this.playerDataFetchCallback.thenAcceptAsync(requestedPlayerData -> {
+            if (requestedPlayerData == null) {
+                this.disconnect(Component.literal("Connection terminated."));
+
+                return;
+            }
+
             final CompoundTag decodedNbt = this.decodeNbtFrom(requestedPlayerData);
 
             if (decodedNbt != null) {
@@ -176,8 +182,6 @@ public abstract class ServerLoginPacketListenerImplMixin {
                 }
 
                 ServerLoader.playerDataCache.put(requestedProfile.getId(), decodedNbt);
-
-                return;
             }
 
 

@@ -2,7 +2,7 @@ package meow.kikir.freesia.velocity.network.ysm;
 
 import com.velocitypowered.api.proxy.Player;
 import meow.kikir.freesia.velocity.Freesia;
-import meow.kikir.freesia.velocity.YsmProtocolMetaFile;
+import meow.kikir.freesia.velocity.events.PlayerKnownYsmPacketInputEvent;
 import meow.kikir.freesia.velocity.network.ysm.protocol.EnumPacketDirection;
 import meow.kikir.freesia.velocity.network.ysm.protocol.YsmPacket;
 import meow.kikir.freesia.velocity.network.ysm.protocol.YsmPacketCodec;
@@ -31,9 +31,31 @@ public class RealPlayerYsmPacketProxy extends YsmPacketProxyBase {
     @Override
     public ProxyComputeResult processS2C(Key key, ByteBuf copiedPacketData) {
         final SimpleFriendlyByteBuf mcBuffer = new SimpleFriendlyByteBuf(copiedPacketData);
-        final YsmPacket decoded = YsmPacketCodec.tryDecode(mcBuffer, EnumPacketDirection.S2C);
+        YsmPacket decoded = YsmPacketCodec.tryDecode(mcBuffer, EnumPacketDirection.S2C);
 
         if (decoded != null) {
+            final PlayerKnownYsmPacketInputEvent pktEvent = Freesia.PROXY_SERVER.getEventManager().fire(new PlayerKnownYsmPacketInputEvent(
+                    decoded, this.player, ProxyComputeResult.ofPass()
+            )).join();
+
+            // dropped by plugins
+            final ProxyComputeResult computeResult = pktEvent.getHandleResult();
+            if (computeResult.result() == ProxyComputeResult.EnumResult.DROP) {
+                return computeResult;
+            }
+
+            // modified
+            if (computeResult.result() == ProxyComputeResult.EnumResult.MODIFY) {
+                YsmPacket toReplace = pktEvent.getPacket();
+
+                if (toReplace == null) {
+                    Freesia.LOGGER.warn("Null ysm packet process result was set! Rejecting forward process.");
+                    return ProxyComputeResult.ofDrop();
+                }
+
+                decoded = toReplace;
+            }
+
             return decoded.handle(this.handler);
         }
 

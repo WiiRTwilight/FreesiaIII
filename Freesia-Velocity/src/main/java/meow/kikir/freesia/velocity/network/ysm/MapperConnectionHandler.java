@@ -10,6 +10,8 @@ import meow.kikir.freesia.common.EntryPoint;
 import meow.kikir.freesia.common.data.RequestedPlayerData;
 import meow.kikir.freesia.velocity.Freesia;
 import meow.kikir.freesia.common.utils.SimpleFriendlyByteBuf;
+import meow.kikir.freesia.velocity.events.PlayerEntityDataLoadEvent;
+import meow.kikir.freesia.velocity.events.PlayerEntityDataStoreEvent;
 import meow.kikir.freesia.velocity.utils.PendingPacket;
 import net.kyori.adventure.key.Key;
 import net.kyori.adventure.text.Component;
@@ -30,6 +32,7 @@ import java.lang.invoke.VarHandle;
 import java.net.SocketAddress;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 public class MapperConnectionHandler implements SessionListener {
     private SocketAddress workerAddress;
@@ -185,7 +188,35 @@ public class MapperConnectionHandler implements SessionListener {
 
                 // note: proxy read -> we have the entity id of current player
                 // also we may read data first so that we could luckily avoid awaiting the callbacks if possible
-                Freesia.realPlayerDataStorageManager.loadPlayerData(requestedUUID).thenAccept(dataInBytes -> this.ensureBackendReady(() -> {
+                final CompletableFuture<byte[]> callback = new CompletableFuture<>();
+
+                Freesia.realPlayerDataStorageManager.loadPlayerData(requestedUUID)
+                        .whenComplete((result, ex) -> {
+                            if (ex != null) {
+                                callback.completeExceptionally(ex);
+                                return;
+                            }
+
+                            Freesia.PROXY_SERVER
+                                    .getEventManager()
+                                    .fire(new PlayerEntityDataLoadEvent(requestedUUID, result))
+                                    .whenComplete((handled, ex2) -> {
+                                        if (ex2 != null) {
+                                            callback.completeExceptionally(ex2);
+                                            return;
+                                        }
+
+                                        callback.complete(handled.getSerializedNbtData());
+                                    });
+                        });
+
+
+                callback.whenComplete((dataInBytes, ex) -> this.ensureBackendReady(() -> {
+                    if (ex != null) {
+                        Freesia.LOGGER.error("Could not load player ysm data for player {}, exception: {}", requestedUUID, ex);
+                        return;
+                    }
+
                     final RequestedPlayerData result = new RequestedPlayerData();
 
                     final int playerEntityId = this.packetProxy.getPlayerEntityId();

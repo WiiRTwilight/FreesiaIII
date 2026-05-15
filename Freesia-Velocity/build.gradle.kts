@@ -6,7 +6,7 @@ dependencies {
     compileOnly("net.kyori:adventure-api:4.17.0")
 
     implementation(project(":Freesia-Common"))
-    implementation("com.github.retrooper:packetevents-api:2.8.0")
+    implementation("com.github.retrooper:packetevents-api:2.12.1")
     implementation("com.electronwill.night-config:toml:3.6.6")
     implementation("org.geysermc.mcprotocollib:protocol:1.21-SNAPSHOT")
     implementation("ca.spottedleaf:concurrentutil:0.0.3")

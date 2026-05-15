@@ -11,8 +11,7 @@ import meow.kikir.freesia.common.data.RequestedPlayerData;
 import meow.kikir.freesia.velocity.Freesia;
 import meow.kikir.freesia.common.utils.SimpleFriendlyByteBuf;
 import meow.kikir.freesia.velocity.events.PlayerEntityDataLoadEvent;
-import meow.kikir.freesia.velocity.events.PlayerEntityDataStoreEvent;
-import meow.kikir.freesia.velocity.utils.PendingPacket;
+import meow.kikir.freesia.velocity.utils.SendOp;
 import net.kyori.adventure.key.Key;
 import net.kyori.adventure.text.Component;
 import org.geysermc.mcprotocollib.network.Session;
@@ -41,7 +40,7 @@ public class MapperConnectionHandler implements SessionListener {
     private final MappersManager mapperPayloadManager;
 
     // Callbacks for packet processing and tracker updates
-    private final MultiThreadedQueue<PendingPacket> pendingYsmPacketsInbound = new MultiThreadedQueue<>();
+    private final MultiThreadedQueue<SendOp> pendingYsmPacketsInbound = new MultiThreadedQueue<>();
     private final MultiThreadedQueue<UUID> pendingTrackerUpdatesTo = new MultiThreadedQueue<>();
     private final MultiThreadedQueue<Runnable> backendReadyCallbacks = new MultiThreadedQueue<>();
 
@@ -150,7 +149,7 @@ public class MapperConnectionHandler implements SessionListener {
         }
 
         // Process incoming packets that we had not ready to process before
-        PendingPacket pendingYsmPacket;
+        SendOp pendingYsmPacket;
         while ((pendingYsmPacket = this.pendingYsmPacketsInbound.pollOrBlockAdds()) != null) { // Destroy(block add operations) the queue
             this.processInComingYsmPacket(pendingYsmPacket.channel(), pendingYsmPacket.data());
         }
@@ -269,8 +268,8 @@ public class MapperConnectionHandler implements SessionListener {
             // If the packet is of ysm
             if (channelKey.toString().equals(MappersManager.YSM_CHANNEL_KEY_ADVENTURE.toString())) {
                 // Check if we are not ready for the backend side yet(We will block the add operations once the backend is ready for the player)
-                final PendingPacket pendingPacket = new PendingPacket(channelKey, packetData);
-                if (!this.pendingYsmPacketsInbound.offer(pendingPacket)) {
+                final SendOp sendOp = new SendOp(channelKey, packetData);
+                if (!this.pendingYsmPacketsInbound.offer(sendOp)) {
                     // Add is blocked, we'll process it directly
                     this.processInComingYsmPacket(channelKey, packetData);
                 }

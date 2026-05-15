@@ -1,7 +1,9 @@
 package meow.kikir.freesia.velocity.network.mc;
 
 import com.velocitypowered.api.event.Subscribe;
+import com.velocitypowered.api.event.connection.DisconnectEvent;
 import com.velocitypowered.api.event.connection.PluginMessageEvent;
+import com.velocitypowered.api.event.player.ServerPreConnectEvent;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ServerConnection;
 import com.velocitypowered.api.proxy.messages.MinecraftChannelIdentifier;
@@ -9,25 +11,38 @@ import io.netty.buffer.Unpooled;
 import meow.kikir.freesia.velocity.Freesia;
 import meow.kikir.freesia.common.utils.SimpleFriendlyByteBuf;
 import org.jetbrains.annotations.NotNull;
+import org.jspecify.annotations.NonNull;
 
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
-import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 public class FreesiaPlayerTracker {
     private static final MinecraftChannelIdentifier SYNC_CHANNEL_KEY = MinecraftChannelIdentifier.create("freesia", "tracker_sync");
 
-    private final Set<BiConsumer<Player, Player>> realPlayerListeners = ConcurrentHashMap.newKeySet();
-
-    private final Map<Integer, Consumer<Set<UUID>>> pendingCanSeeTasks = new ConcurrentHashMap<>();
-    private final AtomicInteger idGenerator = new AtomicInteger(0);
+    private final Set<BiConsumer<Player, UUID>> realPlayerListeners = ConcurrentHashMap.newKeySet();
+    private final Map<UUID, Set<UUID>> trackerVisibleMap = new ConcurrentHashMap<>();
 
     public void init() {
         Freesia.PROXY_SERVER.getChannelRegistrar().register(SYNC_CHANNEL_KEY);
         Freesia.PROXY_SERVER.getEventManager().register(Freesia.INSTANCE, this);
+    }
+
+    @Subscribe
+    public void onPlayerDisconnect(@NonNull DisconnectEvent disconnectEvent) {
+        final Player disconnected = disconnectEvent.getPlayer();
+
+        // force clean up
+        this.trackerVisibleMap.remove(disconnected.getUniqueId());
+    }
+
+    @Subscribe
+    public void onPlayerPreConnect(@NonNull ServerPreConnectEvent preConnectEvent) {
+        final Player connected = preConnectEvent.getPlayer();
+
+        // force clean up
+        this.trackerVisibleMap.put(connected.getUniqueId(), ConcurrentHashMap.newKeySet());
     }
 
     @Subscribe
@@ -44,90 +59,75 @@ public class FreesiaPlayerTracker {
 
         final SimpleFriendlyByteBuf packetData = new SimpleFriendlyByteBuf(Unpooled.wrappedBuffer(event.getData()));
 
-        switch (packetData.readVarInt()) {
+        final int packetId = packetData.readVarInt();
+        switch (packetId) {
+            // add pairing
             case 0 -> {
-                final int taskId = packetData.readVarInt();
-                final int collectionSize = packetData.readVarInt();
-                final Set<UUID> result = new HashSet<>(collectionSize);
+                final UUID tracker = packetData.readUUID();
+                final UUID tracked = packetData.readUUID();
 
-                for (int i = 0; i < collectionSize; i++) {
-                    result.add(packetData.readUUID());
+                final Optional<Player> trackerPlayerOptional = Freesia.PROXY_SERVER.getPlayer(tracker);
+
+                if (trackerPlayerOptional.isEmpty()) {
+                    Freesia.LOGGER.warn("Unknown add pairing request for player {} !", tracker);
+                    return;
                 }
 
-                final Consumer<Set<UUID>> targetTask = this.pendingCanSeeTasks.remove(taskId);
+                final Player trackerPlayer = trackerPlayerOptional.get();
 
-                try {
-                    targetTask.accept(result);
-                } catch (Exception e) {
-                    Freesia.LOGGER.error("Can not process tracker callback task !", e);
+                final Set<UUID> visibleSubTable = this.trackerVisibleMap.get(tracker);
+                // cleaned up, return
+                if (visibleSubTable == null) {
+                    return;
+                }
+
+                if (visibleSubTable.add(tracked)) {
+                    this.firePlayerTracked(trackerPlayer, tracked);
                 }
             }
 
-            case 2 -> {
-                final UUID beSeeingUUID = packetData.readUUID();
-                final UUID watcherUUID = packetData.readUUID();
+            // remove pairing
+            case 1 -> {
+                final UUID tracker = packetData.readUUID();
+                final UUID unTracked = packetData.readUUID();
 
-                final Optional<Player> watcherPlayerNullable = Freesia.PROXY_SERVER.getPlayer(watcherUUID);
-                final Optional<Player> beSeeingPlayerNullable = Freesia.PROXY_SERVER.getPlayer(beSeeingUUID);
-
-                if (watcherPlayerNullable.isPresent()) {
-                    final Player watcherPlayer = watcherPlayerNullable.get();
-
-                    if (beSeeingPlayerNullable.isPresent()) {
-                        final Player beSeeingPlayer = beSeeingPlayerNullable.get();
-
-                        for (BiConsumer<Player, Player> listener : this.realPlayerListeners) {
-                            try {
-                                listener.accept(beSeeingPlayer, watcherPlayer);
-                            } catch (Exception e) {
-                                Freesia.LOGGER.error("Can not process real tracker update!", e);
-                            }
-                        }
-                    }
+                final Set<UUID> visibleSubTable = this.trackerVisibleMap.get(tracker);
+                // cleaned up, return
+                if (visibleSubTable == null) {
+                    return;
                 }
+
+                visibleSubTable.remove(unTracked); // TODO - Untrack callbacks?
+            }
+
+            default -> throw new IllegalStateException("Unknown tracker sync packet id " + packetId + " !");
+        }
+    }
+
+    public Set<Player> getVisiblePlayersTo(UUID beingWatched) {
+        final Set<UUID> visibleTable = this.trackerVisibleMap.get(beingWatched);
+
+        if (visibleTable == null) {
+            return Collections.emptySet();
+        }
+
+        return visibleTable.stream()
+                .map(uuid -> Freesia.PROXY_SERVER.getPlayer(uuid))
+                .flatMap(Optional::stream)
+                .collect(Collectors.toSet());
+    }
+
+    public void firePlayerTracked(Player watcher, UUID watched) {
+        for (BiConsumer<Player, UUID> listener : this.realPlayerListeners) {
+            try {
+                listener.accept(watcher, watched);
+            } catch (Exception e) {
+                Freesia.LOGGER.error("Can not process real tracker update!", e);
             }
         }
     }
 
-    public CompletableFuture<Set<UUID>> getCanSee(@NotNull UUID target) {
-        CompletableFuture<Set<UUID>> callback = new CompletableFuture<>();
-        final int callbackId = this.idGenerator.getAndIncrement();
-
-        this.pendingCanSeeTasks.put(callbackId, callback::complete);
-
-        final SimpleFriendlyByteBuf callbackRequest = new SimpleFriendlyByteBuf(Unpooled.buffer());
-
-        callbackRequest.writeVarInt(1);
-        callbackRequest.writeVarInt(callbackId);
-        callbackRequest.writeUUID(target);
-
-        final Optional<Player> targetPlayerNullable = Freesia.PROXY_SERVER.getPlayer(target);
-
-        final boolean[] cancelCallbackAdd = {false};
-        if (targetPlayerNullable.isPresent()) {
-            final Player targetPlayer = targetPlayerNullable.get();
-
-            targetPlayer.getCurrentServer().ifPresentOrElse(
-                    server -> server.getServer().sendPluginMessage(SYNC_CHANNEL_KEY, callbackRequest.getBytes()),
-                    () -> {
-                        cancelCallbackAdd[0] = true;
-                        callback.complete(null); // Maybe at the early stage
-                    } // Throw exception when we didn't find that server
-            );
-        } else {
-            cancelCallbackAdd[0] = true;
-            callback.complete(null);
-        }
-
-        // If we didn't find the server, we need to remove the callback
-        if (cancelCallbackAdd[0]) {
-            this.pendingCanSeeTasks.remove(callbackId);
-        }
-
-        return callback;
-    }
-
-    public void addRealPlayerTrackerEventListener(BiConsumer<Player, Player> listener) {
+    public void addTrackerListener(BiConsumer<Player, UUID> listener) {
         this.realPlayerListeners.add(listener);
     }
 }

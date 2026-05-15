@@ -10,10 +10,8 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.lang.invoke.VarHandle;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 
 /**
  * The framework which is used for all ysm packet proxies</br>
@@ -182,8 +180,8 @@ public abstract class YsmPacketProxyBase implements YsmPacketProxy{
             return;
         }
 
-        this.sendModelDataToRaw(target.getUniqueId(), currEntityId, currEntityData);
-        this.sendAnimationDataToRaw(target.getUniqueId(), currEntityId, currAnimationData);
+        this.sendModelDataToRaw(target, currEntityId, currEntityData);
+        this.sendAnimationDataToRaw(target, currEntityId, currAnimationData);
     }
 
     @Override
@@ -238,33 +236,20 @@ public abstract class YsmPacketProxyBase implements YsmPacketProxy{
         }
 
         // Sync to the owner self
-        this.sendModelDataToRaw(this.playerUUID, currEntityId, currModelData);
-        this.sendAnimationDataToRaw(this.playerUUID, currEntityId, currAnimationData);
+        this.sendModelDataToRaw(this.player, currEntityId, currModelData);
+        this.sendAnimationDataToRaw(this.player, currEntityId, currAnimationData);
 
         // Fetch can-see list
-        this.fetchTrackerList(this.playerUUID).whenComplete((result, ex) -> {
-            // Exception processing
-            if (ex != null) {
-                Freesia.LOGGER.warn("Failed to fetch tracker list for player uuid {}: {}", this.player != null ? this.player.getUniqueId(): this.playerUUID, ex);
-                return;
+        for (Player toSend : this.visiblePlayersTo(this.playerUUID)) {
+            // Check ysm installed
+            if (Freesia.mappersManager.isPlayerInstalledYsm(toSend)) {
+                this.sendModelDataToRaw(toSend, currEntityId, currModelData);
+                this.sendAnimationDataToRaw(toSend, currEntityId, currAnimationData);
             }
-
-            for (UUID toSend : result) {
-                final Optional<Player> queryResult = Freesia.PROXY_SERVER.getPlayer(toSend);
-
-                // If it is a real player
-                if (queryResult.isPresent()) {
-                    // Check ysm installed
-                    if (Freesia.mappersManager.isPlayerInstalledYsm(toSend)) {
-                        this.sendModelDataToRaw(toSend, currEntityId, currModelData);
-                        this.sendAnimationDataToRaw(toSend, currEntityId, currAnimationData);
-                    }
-                }
-            }
-        });
+        }
     }
 
-    public abstract CompletableFuture<Set<UUID>> fetchTrackerList(UUID observer);
+    public abstract Set<Player> visiblePlayersTo(UUID beingWatched);
 
     @Override
     public void executeMolang(String expression) {
@@ -290,31 +275,19 @@ public abstract class YsmPacketProxyBase implements YsmPacketProxy{
         this.sendYsmPacket(molangExecutePacket);
     }
 
-    protected void sendModelDataToRaw(@NotNull UUID receiverUUID, int entityId, byte[] data) {
-        final Optional<Player> queryResult = Freesia.PROXY_SERVER.getPlayer(receiverUUID);
-
-        if (queryResult.isEmpty()) {
+    protected void sendModelDataToRaw(@NotNull Player receiver, int entityId, @Nullable byte[] data) {
+        if (data == null) {
             return;
         }
-
-        final Player receiver = queryResult.get();
 
         final S2CModelDataUpdatePacket modelDataUpdatePacket = new S2CModelDataUpdatePacket(entityId, data);
         this.sendYsmPacket(receiver, modelDataUpdatePacket);
     }
 
-    protected void sendAnimationDataToRaw(@NotNull UUID receiverUUID, int entityId, byte @Nullable [] data) {
+    protected void sendAnimationDataToRaw(@NotNull Player receiver, int entityId, byte @Nullable [] data) {
         if (data == null) {
             return;
         }
-
-        final Optional<Player> queryResult = Freesia.PROXY_SERVER.getPlayer(receiverUUID);
-
-        if (queryResult.isEmpty()) {
-            return;
-        }
-
-        final Player receiver = queryResult.get();
 
         final S2CAnimationDataUpdatePacket animationDataUpdatePacket = new S2CAnimationDataUpdatePacket(entityId, data);
 

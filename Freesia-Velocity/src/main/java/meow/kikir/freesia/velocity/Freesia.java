@@ -105,7 +105,7 @@ public class Freesia {
         this.proxyServer.getChannelRegistrar().register(MappersManager.YSM_CHANNEL_KEY_VELOCITY);
         // Init tracker
         tracker.init();
-        tracker.addRealPlayerTrackerEventListener(mappersManager::onRealPlayerTrackerUpdate);
+        tracker.addTrackerListener(mappersManager::handlePlayerTracked);
 
         // Master controller service
         masterServer = new NettySocketServer(FreesiaConfig.masterServiceAddress, MasterServerMessageHandler::new);

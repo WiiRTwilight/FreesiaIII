@@ -15,7 +15,6 @@ public final class FreesiaBackend extends JavaPlugin {
         INSTANCE = this;
 
         // TODO- De-hard-coding?
-        Bukkit.getMessenger().registerIncomingPluginChannel(this, TrackerProcessor.CHANNEL_NAME, this.trackerProcessor);
         Bukkit.getMessenger().registerOutgoingPluginChannel(this, TrackerProcessor.CHANNEL_NAME);
 
 

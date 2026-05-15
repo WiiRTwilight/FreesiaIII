@@ -290,23 +290,32 @@ public class MappersManager {
         this.increaseWorkerSessionCount(backend);
     }
 
-    public void onRealPlayerTrackerUpdate(Player beingWatched, Player watcher) {
-        final MapperConnectionHandler mapperSession = this.sessions.get(beingWatched);
+    public void handlePlayerTracked(Player watcher, UUID watched) {
+        final Player beingWatchedRealPlayer = Freesia.PROXY_SERVER.getPlayer(watched).orElse(null);
 
-        // The mapper was created earlier than the player's connection turned in-game state
-        // so as the result, we could simply pass it down directly
-        if (mapperSession == null) {
-            // We use random player as the payload of custom payload of freesia tracker, so there is a possibility
-            // that race condition would happen between the disconnect logic and tracker update logic
+        YsmPacketProxy packetProxy = null;
+        boolean doActualUpdate = this.isPlayerInstalledYsm(watcher);
+
+        // not a real player, go into virtual player process
+        if (beingWatchedRealPlayer == null) {
+            // TODO
             return;
+        }else {
+            final MapperConnectionHandler mapperSession = this.sessions.get(beingWatchedRealPlayer);
+
+            // handle race cond: player removed before tracker update
+            if (mapperSession != null) {
+                packetProxy = mapperSession.getPacketProxy();
+
+                // player is ysm installed but mapper is not ready yet
+                if (doActualUpdate && mapperSession.queueTrackerUpdate(watcher.getUniqueId())) {
+                    doActualUpdate = false;
+                }
+            }
         }
 
-        // Skip players who don't install ysm
-        if (this.isPlayerInstalledYsm(watcher)) {
-            // Check if ready
-            if (!mapperSession.queueTrackerUpdate(watcher.getUniqueId())) {
-                mapperSession.getPacketProxy().sendFullEntityDataTo(watcher);
-            }
+        if (packetProxy != null && doActualUpdate) {
+            packetProxy.sendFullEntityDataTo(watcher);
         }
     }
 

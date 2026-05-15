@@ -25,9 +25,10 @@ public class RealPlayerYsmPacketProxy extends YsmPacketProxyBase {
     }
 
     @Override
-    public CompletableFuture<Set<UUID>> fetchTrackerList(UUID observer) {
-        return Freesia.tracker.getCanSee(observer);
+    public Set<Player> visiblePlayersTo(UUID beingWatched) {
+        return Freesia.tracker.getVisiblePlayersTo(beingWatched);
     }
+
 
     @Override
     public ProxyComputeResult processS2C(Key key, ByteBuf copiedPacketData) {
